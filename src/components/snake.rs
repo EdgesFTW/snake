@@ -65,9 +65,13 @@ impl SnakeState {
             (Direction::Right(), (x, y)) => (wrap_x(*x + 1), wrap_y(*y)),
         };
 
-        if self.body.len() == (NUM_ROWS * NUM_COLS) as usize {
+        if self.body.len() == (NUM_ROWS * NUM_COLS - 1) as usize {
             // game won
             console_log("YOU WON!!!");
+            document()
+                .get_element_by_id(format!("({new_x},{new_y})").as_str())
+                .expect("ele should have loaded by now")
+                .set_class_name(SNAKE_CELL);
             todo!();
         }
 
@@ -76,6 +80,13 @@ impl SnakeState {
             console_log("YOU DIED!!!");
             todo!();
         }
+
+        // add new head
+        self.body.push_back((new_x, new_y));
+        document()
+            .get_element_by_id(format!("({new_x},{new_y})").as_str())
+            .expect("ele should have loaded by now")
+            .set_class_name(SNAKE_CELL);
 
         if self.food == (new_x, new_y) {
             // increment length
@@ -98,13 +109,6 @@ impl SnakeState {
                 .expect("ele should have loaded by now")
                 .set_class_name(FOOD_CELL);
         }
-
-        // add new head
-        self.body.push_back((new_x, new_y));
-        document()
-            .get_element_by_id(format!("({new_x},{new_y})").as_str())
-            .expect("ele should have loaded by now")
-            .set_class_name(SNAKE_CELL);
 
         // remove old tail
         let (expired_x, expired_y) = self.body.pop_front().expect("Snake should never be empty");
