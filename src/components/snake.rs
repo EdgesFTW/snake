@@ -1,24 +1,25 @@
 //
 // things to add
-// 1. death alerts
+// 1. restart game
 // 2. custom gamespeed
 // 3. resizable game board
 // 4. reduce binary size
 //
 //
 
-use std::collections::{vec_deque, VecDeque};
-
 use ev::KeyboardEvent;
 use leptos::*;
-use leptos_dom::logging::console_log;
 use rand::random;
-use wasm_bindgen::{closure::Closure, JsCast};
+use std::collections::{vec_deque, VecDeque};
+use wasm_bindgen::prelude::*;
+use web_sys::window;
+use web_time::{Duration, Instant};
 const EMPTY_CELL: &str = "m-px w-12 h-12 rounded-md bg-slate-700";
 const SNAKE_CELL: &str = "m-px w-12 h-12 rounded-md bg-emerald-500";
 const FOOD_CELL: &str = "m-px w-12 h-12 rounded-sm bg-cyan-500";
 const NUM_ROWS: u32 = 5;
 const NUM_COLS: u32 = 5;
+const STEP: Duration = Duration::new(0, 0_500_000_000);
 
 const STARTING_BODY: [(i32, i32); 3] = [(1, 1), (2, 1), (3, 1)];
 
@@ -36,7 +37,7 @@ struct SnakeState {
 }
 
 impl SnakeState {
-    fn time_step(&mut self) {
+    fn time_step(&mut self) -> GameStatus {
         fn wrap_x(x: i32) -> i32 {
             if x < 0 {
                 NUM_COLS as i32 + x
@@ -67,18 +68,15 @@ impl SnakeState {
 
         if self.body.len() == (NUM_ROWS * NUM_COLS - 1) as usize {
             // game won
-            console_log("YOU WON!!!");
             document()
                 .get_element_by_id(format!("({new_x},{new_y})").as_str())
                 .expect("ele should have loaded by now")
                 .set_class_name(SNAKE_CELL);
-            todo!();
+            return GameStatus::Victory();
         }
 
         if self.body.contains(&(new_x, new_y)) {
-            // endgame cuz dead
-            console_log("YOU DIED!!!");
-            todo!();
+            return GameStatus::Death();
         }
 
         // add new head
@@ -118,6 +116,8 @@ impl SnakeState {
                 .expect("ele should have loaded by now")
                 .set_class_name(EMPTY_CELL);
         }
+
+        return GameStatus::Continue();
     }
 }
 
@@ -127,18 +127,58 @@ static mut STATE: SnakeState = SnakeState {
     food: (0, 0),
 };
 
-static mut FRAME: u64 = 0;
+struct Timer {
+    time: Instant,
+}
+impl Timer {
+    fn new(len: Duration) -> Self {
+        Timer {
+            time: Instant::now() + len,
+        }
+    }
+}
+
+enum GameStatus {
+    Continue(),
+    Death(),
+    Victory(),
+}
+
+static mut FRAME_NUM: u64 = 0;
+static mut TIMER: Option<Timer> = None;
 fn game_loop() {
     unsafe {
-        if FRAME % 75 == 0 {
-            STATE.time_step();
+        match TIMER.as_ref() {
+            Some(t) => {
+                if Instant::now() > t.time {
+                    TIMER = Some(Timer::new(STEP));
+                    match STATE.time_step() {
+                        GameStatus::Continue() => (),
+                        res => {
+                            game_end(res);
+                            return;
+                        }
+                    }
+                }
+            }
+            None => TIMER = Some(Timer::new(STEP)),
         }
 
         // update state
-        FRAME += 1;
+        FRAME_NUM += 1;
 
         request_animation_frame(game_loop);
     }
+}
+
+fn game_end(victory: GameStatus) {
+    let terminal_str = match victory {
+        GameStatus::Death() => "You have died!",
+        GameStatus::Victory() => "You won!",
+        _ => unreachable!(),
+    };
+
+    window().unwrap().alert_with_message(terminal_str).unwrap();
 }
 
 fn snake_keypress(key_event: KeyboardEvent) {
