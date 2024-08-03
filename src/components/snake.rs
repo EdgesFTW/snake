@@ -10,7 +10,11 @@
 use ev::KeyboardEvent;
 use leptos::*;
 use rand::random;
-use std::collections::{vec_deque, VecDeque};
+use std::{
+    cell::RefCell,
+    collections::{vec_deque, VecDeque},
+    rc::Rc,
+};
 use wasm_bindgen::prelude::*;
 use web_sys::window;
 use web_time::{Duration, Instant};
@@ -146,30 +150,6 @@ enum GameStatus {
 
 static mut FRAME_NUM: u64 = 0;
 static mut TIMER: Option<Timer> = None;
-fn game_loop() {
-    unsafe {
-        match TIMER.as_ref() {
-            Some(t) => {
-                if Instant::now() > t.time {
-                    TIMER = Some(Timer::new(STEP));
-                    match STATE.time_step() {
-                        GameStatus::Continue() => (),
-                        res => {
-                            game_end(res);
-                            return;
-                        }
-                    }
-                }
-            }
-            None => TIMER = Some(Timer::new(STEP)),
-        }
-
-        // update state
-        FRAME_NUM += 1;
-
-        request_animation_frame(game_loop);
-    }
-}
 
 fn game_end(victory: GameStatus) {
     let terminal_str = match victory {
@@ -179,25 +159,6 @@ fn game_end(victory: GameStatus) {
     };
 
     window().unwrap().alert_with_message(terminal_str).unwrap();
-}
-
-fn snake_keypress(key_event: KeyboardEvent) {
-    let x = key_event.key().to_lowercase();
-    match x.as_str() {
-        "w" | "uparrow" => {
-            unsafe { STATE.dir = Direction::Up() };
-        }
-        "s" | "downarrow" => {
-            unsafe { STATE.dir = Direction::Down() };
-        }
-        "a" | "leftarrow" => {
-            unsafe { STATE.dir = Direction::Left() };
-        }
-        "d" | "rightarrow" => {
-            unsafe { STATE.dir = Direction::Right() };
-        }
-        _ => (),
-    }
 }
 
 #[component]
@@ -234,11 +195,57 @@ pub fn Snake() -> impl IntoView {
 
     // enable keyboard
     let key_closure: Closure<dyn FnMut(KeyboardEvent)> =
-        wasm_bindgen::closure::Closure::new(snake_keypress);
+        wasm_bindgen::closure::Closure::new(move |key_event: KeyboardEvent| {
+            let x = key_event.key().to_lowercase();
+            match x.as_str() {
+                "w" | "uparrow" | "arrowup" => {
+                    unsafe { STATE.dir = Direction::Up() };
+                }
+                "s" | "downarrow" | "arrowdown" => {
+                    unsafe { STATE.dir = Direction::Down() };
+                }
+                "a" | "leftarrow" | "arrowleft" => {
+                    unsafe { STATE.dir = Direction::Left() };
+                }
+                "d" | "rightarrow" | "arrowright" => {
+                    unsafe { STATE.dir = Direction::Right() };
+                }
+                _ => (),
+            }
+        });
     document()
         .add_event_listener_with_callback("keydown", key_closure.as_ref().unchecked_ref())
         .expect("could not add keyboard listener");
     key_closure.forget();
+
+    let game_loop_inner: Rc<RefCell<Box<dyn Fn()>>> =
+        Rc::new(RefCell::new(Box::new(move || unreachable!())));
+    let g: &'static Rc<RefCell<Box<dyn Fn()>>> = Box::leak(Box::new(game_loop_inner.clone()));
+    *(*game_loop_inner).borrow_mut() = Box::new(move || {
+        unsafe {
+            match TIMER.as_ref() {
+                Some(t) => {
+                    if Instant::now() > t.time {
+                        TIMER = Some(Timer::new(STEP));
+                        match STATE.time_step() {
+                            GameStatus::Continue() => (),
+                            res => {
+                                game_end(res);
+                                return;
+                            }
+                        }
+                    }
+                }
+                None => TIMER = Some(Timer::new(STEP)),
+            }
+
+            // update state
+            FRAME_NUM += 1;
+
+            let func = g.try_borrow_unguarded().expect("").to_owned();
+            request_animation_frame(func);
+        }
+    });
 
     let grid = (0..NUM_ROWS)
         .map(|y| {
@@ -253,7 +260,9 @@ pub fn Snake() -> impl IntoView {
             }
         })
         .collect_view();
-    request_animation_frame(game_loop);
+
+    let func = unsafe { g.try_borrow_unguarded().expect("").to_owned() };
+    request_animation_frame(func);
 
     view! {
         <div class="flex flex-col my-20">

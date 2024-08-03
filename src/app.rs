@@ -15,6 +15,7 @@ pub fn App() -> impl IntoView {
 fn Home() -> impl IntoView {
     view! {
         <div class="h-screen w-screen flex-col justify-between text-center text-neutral-100" >
+            <div> <br/> </div>
             <div class="text-4xl my-5">
                 "Welcome to my recreation of snake"
             </div>
